@@ -31,6 +31,35 @@ async function callClaude(system: string, userMessage: string, maxTokens: number
   return data.content[0].text;
 }
 
+async function callSonar(system: string, userMessage: string, maxTokens: number = 1500): Promise<string> {
+  const apiKey = process.env.PERPLEXITY_API_KEY;
+  if (!apiKey) throw new Error("PERPLEXITY_API_KEY not set");
+
+  const response = await fetch("https://api.perplexity.ai/chat/completions", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      model: "sonar",
+      messages: [
+        { role: "system", content: system },
+        { role: "user", content: userMessage },
+      ],
+      max_tokens: maxTokens,
+    }),
+  });
+
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(`Sonar API error ${response.status}: ${text}`);
+  }
+
+  const data = (await response.json()) as any;
+  return data.choices[0].message.content;
+}
+
 export async function registerRoutes(
   httpServer: Server,
   app: Express,
@@ -93,9 +122,9 @@ export async function registerRoutes(
 
     try {
       const scope = `${level} level${state ? ` in ${state}` : ""}`;
-      const raw = await callClaude(
-        "You are a US legislative research assistant. Return ONLY a JSON array of bills. Each bill should have: bill_id, title, summary (1-2 sentences), status, url (congress.gov or legiscan URL), sponsor (name). Return real, verifiable bills when possible. No markdown, just JSON array.",
-        `Find up to ${count} recent or active bills related to '${subject}' at the ${scope}. Return a JSON array.`,
+      const raw = await callSonar(
+        "You are a US legislative research assistant. Return ONLY a JSON array of bills. Each bill should have: bill_id, title, summary (1-2 sentences), status, url (congress.gov or legiscan URL), sponsor (name). Return real, verifiable bills only. No markdown, just JSON array.",
+        `Search for up to ${count} recent or active bills related to '${subject}' at the ${scope}. Return a JSON array.`,
         2000,
       );
       const parsed = parseJsonSafe(raw);
@@ -248,29 +277,4 @@ export async function registerRoutes(
               addressLine2: from_address_line2 || "",
               city: from_city || "",
               provinceOrState: from_state || "",
-              postalOrZip: from_zip || "",
-              country: "US",
-            },
-            html: letter_html,
-            description: description || "LobbyVolley constituent letter",
-            addressPlacement: "insert_blank_page",
-          }),
-        },
-      );
-
-      if (resp.status === 200 || resp.status === 201) {
-        res.json(await resp.json());
-      } else {
-        res.json({
-          error: `PostGrid ${resp.status}`,
-          detail: await resp.text(),
-        });
-      }
-    } catch (e: any) {
-      console.error("PostGrid error:", e);
-      res.json({ error: e.message });
-    }
-  });
-
-  return httpServer;
-}
+              postalOrZip: from_zip ||
